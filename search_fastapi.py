@@ -1,14 +1,20 @@
 import logging
+import sys
 from argparse import ArgumentParser, Namespace
 from collections.abc import Callable
 from pathlib import Path
 from time import time
 from typing import Any
 
-import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+try:
+    import uvicorn
+    from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.staticfiles import StaticFiles
+except ImportError:
+    print("Please install this package with 'server' optional group.\n")
+    print("    uv sync --feature server\n")
+    sys.exit(1)
 
 from korpsearch.corpus import Corpus
 from korpsearch.index import Template
