@@ -148,6 +148,7 @@ private*
 cache/
 *.indexes/
 *.corpus/
+*.corpus-rs/
 
 # These are built by Make:
 *.c

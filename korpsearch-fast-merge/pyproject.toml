@@ -10,5 +10,10 @@ requires-python = ">=3.12"
 dependencies = []
 
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=74.1", "cython"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+ext-modules = [
+    {name = "fast_merge", sources =["src/korpsearch_fast_merge/fast_merge.pyx"]},
+]
