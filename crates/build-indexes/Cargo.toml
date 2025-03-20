@@ -1,0 +1,12 @@
+[package]
+name = "build-indexes"
+description = "Build search index(es) for a given corpus"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { workspace = true, features = ["derive", "cargo"] }
+env_logger = { workspace = true }
+korpsearch = { workspace = true }
+log.workspace = true
+miette = { workspace = true, features = ["fancy"] }
