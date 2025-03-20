@@ -1,13 +1,22 @@
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Callable
-from pathlib import Path
-from typing import Iterable, Any
 from argparse import Namespace
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import Any, Iterable
 
-from util import CompressedFileReader, uncompressed_suffix
-from util import Feature, FValue, EMPTY, SENTENCE, START, check_feature
-from util import progress_bar, ProgressBar
+from korpsearch.util import (
+    EMPTY,
+    SENTENCE,
+    START,
+    CompressedFileReader,
+    Feature,
+    FValue,
+    ProgressBar,
+    check_feature,
+    progress_bar,
+    uncompressed_suffix,
+)
 
 Header = list[Feature]
 Token = list[FValue]
@@ -27,14 +36,16 @@ class CorpusReader(ABC):
     def close(self) -> None:
         pass
 
-    def __enter__(self) -> 'CorpusReader':
+    def __enter__(self) -> "CorpusReader":
         return self
 
     def __exit__(self, *_: Any) -> None:
         self.close()
 
 
-def corpus_reader(path: Path, description: str, args: Namespace = Namespace()) -> CorpusReader:
+def corpus_reader(
+    path: Path, description: str, args: Namespace = Namespace()
+) -> CorpusReader:
     suffix = uncompressed_suffix(path)
     try:
         reader = CORPUS_READERS[suffix]
@@ -54,7 +65,7 @@ class AugmentedReader(CorpusReader):
 
         self._header = reader.header()
         if not self.args.no_reversed_features:
-            revd = [Feature(feature + b'_rev') for feature in self._header]
+            revd = [Feature(feature + b"_rev") for feature in self._header]
             self._header.extend(revd)
         if not self.args.no_sentence_feature:
             self._header.append(SENTENCE)
@@ -95,18 +106,20 @@ class CSVReader(CorpusReader):
 
     @staticmethod
     def split_line(line: bytes) -> Iterable[bytes]:
-        return line.split(b'\t')
+        return line.split(b"\t")
 
     def header(self) -> Header:
         return self._header
 
     def sentences(self) -> Iterator[Sentence]:
         pbar: ProgressBar[None]
-        with progress_bar(total=self._corpus.file_size(), desc=self._description) as pbar:
+        with progress_bar(
+            total=self._corpus.file_size(), desc=self._description
+        ) as pbar:
             sentence: Sentence = []
             for n, line in enumerate(self._corpus.reader, 2):
                 line = line.strip()
-                if line.startswith(b'# '):
+                if line.startswith(b"# "):
                     pbar.update(self._corpus.file_position() - pbar.n)
                     if sentence:
                         yield sentence
@@ -115,7 +128,9 @@ class CSVReader(CorpusReader):
                     token = [FValue(v) for v in CSVReader.split_line(line)]
                     if len(token) < self._n_feats:
                         token += [EMPTY] * (self._n_feats - len(token))
-                    assert len(token) == self._n_feats, f"Line {n}, too many columns (>{self._n_feats}): {token}"
+                    assert len(token) == self._n_feats, (
+                        f"Line {n}, too many columns (>{self._n_feats}): {token}"
+                    )
                     sentence.append(token)
             pbar.update(self._corpus.file_position() - pbar.n)
             if sentence:
@@ -127,7 +142,16 @@ class CSVReader(CorpusReader):
 
 class CoNLLReader(CorpusReader):
     DEFAULT_COLUMN_HEADERS = [
-        'ID', 'FORM', 'LEMMA', 'UPOS', 'XPOS', 'FEATS', 'HEAD', 'DEPREL', 'DEPS', 'MISC'
+        "ID",
+        "FORM",
+        "LEMMA",
+        "UPOS",
+        "XPOS",
+        "FEATS",
+        "HEAD",
+        "DEPREL",
+        "DEPS",
+        "MISC",
     ]
 
     _corpus: CompressedFileReader
@@ -147,13 +171,15 @@ class CoNLLReader(CorpusReader):
         self._line_num = 1
 
         # Try and autodetect CoNLL-U Plus with custom columns
-        if match := re.match('^# global\\.columns = ([A-Z:]+(?: [A-Z:]+)+)$', self._next_line.decode()):
-            header = match.group(1).split(' ')
+        if match := re.match(
+            "^# global\\.columns = ([A-Z:]+(?: [A-Z:]+)+)$", self._next_line.decode()
+        ):
+            header = match.group(1).split(" ")
         else:
             header = CoNLLReader.DEFAULT_COLUMN_HEADERS
 
         def encode(s: str) -> Feature:
-            s = s.lower().replace(':', '_')
+            s = s.lower().replace(":", "_")
             return Feature(str.encode(s))
 
         self._header = [encode(s) for s in header]
@@ -170,7 +196,7 @@ class CoNLLReader(CorpusReader):
             if len(self._next_line) == 0:
                 return None  # Reached end of file
 
-            while self._next_line.startswith(b'#'):
+            while self._next_line.startswith(b"#"):
                 # skip comments and sentence metadata.
                 self._line_num += 1
                 self._next_line = self._corpus.reader.readline()
@@ -185,8 +211,9 @@ class CoNLLReader(CorpusReader):
                 # ID might be of form X.Y (empty node) or X-Y (multiword)
                 # These are not supported, so they are skipped
                 return next_wordline()
-            assert len(columns) == self._n_feats, \
-                f'Line {self._line_num} has {len(columns)} columns in {self._n_feats} column file.'
+            assert len(columns) == self._n_feats, (
+                f"Line {self._line_num} has {len(columns)} columns in {self._n_feats} column file."
+            )
             return columns
 
         while (wl := next_wordline()) is not None:
@@ -197,7 +224,9 @@ class CoNLLReader(CorpusReader):
 
     def sentences(self) -> Iterator[Sentence]:
         pbar: ProgressBar[None]
-        with progress_bar(total=self._corpus.file_size(), desc=self._description) as pbar:
+        with progress_bar(
+            total=self._corpus.file_size(), desc=self._description
+        ) as pbar:
             sentence: Sentence = []
 
             for line in self.wordlines():
@@ -218,8 +247,8 @@ class CoNLLReader(CorpusReader):
 
 
 CORPUS_READERS: dict[str, Callable[[Path, str], CorpusReader]] = {
-    '.csv': CSVReader,
-    '.tsv': CSVReader,
-    '.conllu': CoNLLReader,
-    '.conllup': CoNLLReader,
+    ".csv": CSVReader,
+    ".tsv": CSVReader,
+    ".conllu": CoNLLReader,
+    ".conllup": CoNLLReader,
 }

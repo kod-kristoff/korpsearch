@@ -1,37 +1,50 @@
 """General-purpose on-disk data structures."""
 
-import sys
-import json
-from pathlib import Path
-from mmap import mmap
 import itertools
-from typing import Optional, Union, Any, NewType
-from collections.abc import Iterator, Iterable
+import json
+import sys
+from collections.abc import Iterable, Iterator
+from mmap import mmap
+from pathlib import Path
+from typing import Any, NewType, Optional, Union
 
-from util import add_suffix, get_integer_size, get_typecode, binsearch, binsearch_range, file_size
-
+from korpsearch.util import (
+    add_suffix,
+    binsearch,
+    binsearch_range,
+    file_size,
+    get_integer_size,
+    get_typecode,
+)
 
 ################################################################################
 ## On-disk arrays of numbers
 
+
 class DiskIntArray:
-    array_suffix = '.ia'
-    config_suffix = '.cfg'
+    array_suffix = ".ia"
+    config_suffix = ".cfg"
     default_itemsize = 4
 
     array: memoryview
     path: Optional[Path] = None
     config: dict[str, Any]
 
-    def __init__(self, source: Union[Path, mmap, bytearray], itemsize: int = default_itemsize) -> None:
-        assert not isinstance(source, bytes), "bytes is not mutable - use bytearray instead"
+    def __init__(
+        self, source: Union[Path, mmap, bytearray], itemsize: int = default_itemsize
+    ) -> None:
+        assert not isinstance(source, bytes), (
+            "bytes is not mutable - use bytearray instead"
+        )
         if isinstance(source, Path):
             with open(self.getconfig(source)) as configfile:
                 self.config = json.load(configfile)
-            assert self.config['byteorder'] == sys.byteorder, f"Cannot handle byteorder {self.config['byteorder']}"
-            itemsize = self.config['itemsize']
+            assert self.config["byteorder"] == sys.byteorder, (
+                f"Cannot handle byteorder {self.config['byteorder']}"
+            )
+            itemsize = self.config["itemsize"]
             self.path = self.getpath(source)
-            with open(self.path, 'r+b') as file:
+            with open(self.path, "r+b") as file:
                 try:
                     source = mmap(file.fileno(), 0)
                 except ValueError:  # "cannot mmap an empty file"
@@ -59,13 +72,13 @@ class DiskIntArray:
         self.array.release()
         if isinstance(obj, bytearray):
             assert self.path is None
-            del obj[newsize * itemsize:]
+            del obj[newsize * itemsize :]
             typecode = get_typecode(itemsize)
             self.array = memoryview(obj).cast(typecode)
         elif isinstance(obj, mmap):
             assert self.path
             obj.close()
-            with open(self.path, 'r+b') as file:
+            with open(self.path, "r+b") as file:
                 file.truncate(newsize * itemsize)
                 try:
                     obj = mmap(file.fileno(), 0)
@@ -76,21 +89,34 @@ class DiskIntArray:
         self.array = memoryview(obj).cast(get_typecode(itemsize))
 
     @staticmethod
-    def create(size: int, path: Optional[Path] = None, max_value: int = 0, itemsize: int = 0, **config: Any) -> 'DiskIntArray':
-        assert not (max_value and itemsize), "Only one of 'max_value' and 'itemsize' should be provided."
+    def create(
+        size: int,
+        path: Optional[Path] = None,
+        max_value: int = 0,
+        itemsize: int = 0,
+        **config: Any,
+    ) -> "DiskIntArray":
+        assert not (max_value and itemsize), (
+            "Only one of 'max_value' and 'itemsize' should be provided."
+        )
         if max_value > 0:
             itemsize = get_integer_size(max_value)
         if not itemsize:
             itemsize = DiskIntArray.default_itemsize
         if path:
-            with open(DiskIntArray.getconfig(path), 'w') as configfile:
-                print(json.dumps({
-                    'itemsize': itemsize,
-                    'byteorder': sys.byteorder,
-                    'size': size,
-                    **config,
-                }), file=configfile)
-            with open(DiskIntArray.getpath(path), 'wb') as file:
+            with open(DiskIntArray.getconfig(path), "w") as configfile:
+                print(
+                    json.dumps(
+                        {
+                            "itemsize": itemsize,
+                            "byteorder": sys.byteorder,
+                            "size": size,
+                            **config,
+                        }
+                    ),
+                    file=configfile,
+                )
+            with open(DiskIntArray.getpath(path), "wb") as file:
                 file.truncate(size * itemsize)
             return DiskIntArray(path)
         else:
@@ -113,12 +139,12 @@ class DiskIntArray:
 ################################################################################
 ## String interning
 
-InternedString = NewType('InternedString', int)
+InternedString = NewType("InternedString", int)
 InternedRange = tuple[InternedString, InternedString]
 
 
 class StringCollection:
-    strings_suffix = '.strings'
+    strings_suffix = ".strings"
 
     strings: mmap
     starts: DiskIntArray
@@ -127,10 +153,10 @@ class StringCollection:
 
     def __init__(self, path: Path, preload: bool = False) -> None:
         path = self.getpath(path)
-        with open(path, 'r+b') as file:
+        with open(path, "r+b") as file:
             self.strings = mmap(file.fileno(), 0)
         self.starts = DiskIntArray(path)
-        assert self.starts.array[0]+1 == self.starts.array[1]
+        assert self.starts.array[0] + 1 == self.starts.array[1]
         self._intern = {}
         if preload:
             self.preload()
@@ -141,7 +167,7 @@ class StringCollection:
     def from_index(self, index: int) -> bytes:
         arr = self.starts.array
         start, nextstart = arr[index], arr[index + 1]
-        return self.strings[start : nextstart-1]
+        return self.strings[start : nextstart - 1]
 
     def preload(self) -> None:
         if not self._intern:
@@ -154,19 +180,27 @@ class StringCollection:
             if self._intern:
                 return self._intern[string]
             else:
-                return InternedString(binsearch(0, len(self)-1, string, lambda i: self.from_index(i)))
+                return InternedString(
+                    binsearch(0, len(self) - 1, string, lambda i: self.from_index(i))
+                )
         except (KeyError, IndexError, ValueError):
-            raise ValueError(f"Interned string doesn't exist: {string.decode(errors='ignore')}")
+            raise ValueError(
+                f"Interned string doesn't exist: {string.decode(errors='ignore')}"
+            )
 
     def interned_range(self, string: bytes) -> InternedRange:
         try:
             n = len(string)
-            start, end = binsearch_range(0, len(self)-1, string, string, lambda i: self.from_index(i)[:n])
+            start, end = binsearch_range(
+                0, len(self) - 1, string, string, lambda i: self.from_index(i)[:n]
+            )
             return (InternedString(start), InternedString(end))
         except (KeyError, IndexError, ValueError):
-            raise ValueError(f"Interned prefix doesn't exist: {string.decode(errors='ignore')}")
+            raise ValueError(
+                f"Interned prefix doesn't exist: {string.decode(errors='ignore')}"
+            )
 
-    def __enter__(self) -> 'StringCollection':
+    def __enter__(self) -> "StringCollection":
         return self
 
     def __exit__(self, *_: Any) -> None:
@@ -179,28 +213,27 @@ class StringCollection:
     def sanity_check(self) -> None:
         starts = self.starts.array
         assert starts[0] == 0 and starts[1] == 1
-        old = b''
+        old = b""
         for start, end in zip(starts[1:], starts[2:]):
             assert start < end, f"StringCollection position error: {start} >= {end}"
-            new = self.strings[start : end]
+            new = self.strings[start:end]
             assert old < new, f"StringCollection order error: {old!r} >= {new!r}"
             old = new
-
 
     @staticmethod
     def build(path: Path, strings: Iterable[bytes]) -> None:
         stringset = set(strings)
-        stringset.add(b'')
+        stringset.add(b"")
         stringlist = sorted(stringset)
-        assert stringlist[0] == b''
+        assert stringlist[0] == b""
 
         path = StringCollection.getpath(path)
-        with open(path, 'wb') as stringsfile:
+        with open(path, "wb") as stringsfile:
             for string in stringlist:
                 stringsfile.write(string)
-                stringsfile.write(b'\n')
+                stringsfile.write(b"\n")
 
-        starts = list(itertools.accumulate((len(s)+1 for s in stringlist), initial=0))
+        starts = list(itertools.accumulate((len(s) + 1 for s in stringlist), initial=0))
         with DiskIntArray.create(len(starts), path, max_value=starts[-1]) as arr:
             for i, start in enumerate(starts):
                 arr[i] = start
@@ -213,6 +246,7 @@ class StringCollection:
 
 ################################################################################
 ## On-disk arrays of interned strings
+
 
 class DiskStringArray:
     _strings: StringCollection
@@ -250,7 +284,7 @@ class DiskStringArray:
         for i in self._array.array:
             yield InternedString(i)
 
-    def __enter__(self) -> 'DiskStringArray':
+    def __enter__(self) -> "DiskStringArray":
         return self
 
     def __exit__(self, *_: Any) -> None:
@@ -263,11 +297,11 @@ class DiskStringArray:
     def sanity_check(self) -> None:
         self._strings.sanity_check()
 
-
     @staticmethod
-    def create(path: Path, strings: Iterable[bytes], max_size: int) -> 'DiskStringArray':
+    def create(
+        path: Path, strings: Iterable[bytes], max_size: int
+    ) -> "DiskStringArray":
         StringCollection.build(path, strings)
         collection = StringCollection(path, preload=True)
-        DiskIntArray.create(max_size, path, max_value = len(collection)-1)
+        DiskIntArray.create(max_size, path, max_value=len(collection) - 1)
         return DiskStringArray(path, preload=True)
-

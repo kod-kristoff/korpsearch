@@ -1,20 +1,25 @@
-
-from typing import Optional, Any, NewType
-from collections.abc import Iterator, Callable, Collection, Sequence
+import logging
+from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-import logging
+from typing import Any, NewType, Optional
 
-from disk import InternedString, InternedRange, DiskIntArray
-from corpus import Corpus
-from indexset import IndexSet
-from util import progress_bar, binsearch_range, check_feature, Feature, FValue
-
+from korpsearch.corpus import Corpus
+from korpsearch.disk import DiskIntArray, InternedRange, InternedString
+from korpsearch.indexset import IndexSet
+from korpsearch.util import (
+    Feature,
+    FValue,
+    binsearch_range,
+    check_feature,
+    progress_bar,
+)
 
 ################################################################################
 ## Literals, templates and instances
 
-Instance = NewType('Instance', tuple[InternedRange, ...])
+Instance = NewType("Instance", tuple[InternedRange, ...])
+
 
 def mkInstance(strs: Sequence[InternedString | InternedRange]) -> Instance:
     return Instance(tuple(s if isinstance(s, tuple) else (s, s) for s in strs))
@@ -53,20 +58,22 @@ class KnownLiteral:
         return (value == self.value) != self.negative
 
     @staticmethod
-    def parse(corpus: Corpus, litstr: str) -> 'KnownLiteral':
+    def parse(corpus: Corpus, litstr: str) -> "KnownLiteral":
         try:
-            featstr, rest = litstr.split(':')
+            featstr, rest = litstr.split(":")
             feature = Feature(featstr.lower().encode())
             check_feature(feature)
             try:
-                offset, valstr = rest.split('=')
+                offset, valstr = rest.split("=")
                 negative = False
             except ValueError:
-                offset, valstr = rest.split('#')
+                offset, valstr = rest.split("#")
                 negative = True
             value = FValue(valstr.encode())
             interned_value = corpus.intern(feature, value)
-            return KnownLiteral(negative, int(offset), feature, interned_value, interned_value, corpus)
+            return KnownLiteral(
+                negative, int(offset), feature, interned_value, interned_value, corpus
+            )
         except (ValueError, AssertionError):
             raise ValueError(f"Ill-formed literal: {litstr}")
 
@@ -88,7 +95,7 @@ class DisjunctiveGroup:
         return any(lit.is_prefix() for lit in self.literals)
 
     @staticmethod
-    def create(literals: tuple[KnownLiteral, ...]) -> 'DisjunctiveGroup':
+    def create(literals: tuple[KnownLiteral, ...]) -> "DisjunctiveGroup":
         negative = any(lit.negative for lit in literals)
         offset = min(lit.offset for lit in literals)
         return DisjunctiveGroup(negative, offset, literals)
@@ -106,9 +113,9 @@ class TemplateLiteral:
         return f"{self.feature.decode()}:{self.offset}"
 
     @staticmethod
-    def parse(litstr: str) -> 'TemplateLiteral':
+    def parse(litstr: str) -> "TemplateLiteral":
         try:
-            featstr, offset = litstr.split(':')
+            featstr, offset = litstr.split(":")
             feature = Feature(featstr.lower().encode())
             check_feature(feature)
             return TemplateLiteral(int(offset), feature)
@@ -119,20 +126,28 @@ class TemplateLiteral:
 @dataclass(frozen=True, order=True, init=False)
 class Template:
     size: int  # Having 'size' first means shorter templates are ordered before longer
-    template: tuple[TemplateLiteral,...]
-    literals: tuple[KnownLiteral,...] = ()
+    template: tuple[TemplateLiteral, ...]
+    literals: tuple[KnownLiteral, ...] = ()
 
-    def __init__(self, template: Sequence[TemplateLiteral], literals: Collection[KnownLiteral] = []) -> None:
+    def __init__(
+        self,
+        template: Sequence[TemplateLiteral],
+        literals: Collection[KnownLiteral] = [],
+    ) -> None:
         # We need to use __setattr__ because the class is frozen:
-        object.__setattr__(self, 'template', tuple(template))
-        object.__setattr__(self, 'literals', tuple(sorted(set(literals))))
-        object.__setattr__(self, 'size', len(self.template))
+        object.__setattr__(self, "template", tuple(template))
+        object.__setattr__(self, "literals", tuple(sorted(set(literals))))
+        object.__setattr__(self, "size", len(self.template))
         try:
-            assert self.template == tuple(sorted(set(self.template))), f"Unsorted template"
-            assert self.literals == tuple(sorted(self.literals)),      f"Duplicate literal(s)"
-            assert len(self.template) > 0,                             f"Empty template"
-            assert self.min_offset() == 0,                             f"Minimum offset must be 0"
-            assert all(lit.negative for lit in self.literals),         f"Positive template literal(s)"
+            assert self.template == tuple(sorted(set(self.template))), (
+                "Unsorted template"
+            )
+            assert self.literals == tuple(sorted(self.literals)), "Duplicate literal(s)"
+            assert len(self.template) > 0, "Empty template"
+            assert self.min_offset() == 0, "Minimum offset must be 0"
+            assert all(lit.negative for lit in self.literals), (
+                "Positive template literal(s)"
+            )
         except AssertionError:
             raise ValueError(f"Invalid template: {self}")
 
@@ -146,20 +161,27 @@ class Template:
         return max(self.offsets())
 
     def __str__(self) -> str:
-        return '+'.join(map(str, self.template + self.literals))
+        return "+".join(map(str, self.template + self.literals))
 
     def querystr(self) -> str:
         tokens: list[str] = []
-        for offset in range(self.min_offset(), self.max_offset()+1):
-            token = ','.join('?' + lit.feature.decode() for lit in self.template if lit.offset == offset)
-            literal = ','.join(f'{lit.feature.decode()}{"≠" if lit.negative else "="}"{val}"'
-                               for lit in self.literals if lit.offset == offset
-                               for val in [lit.corpus.lookup_value(lit.feature, lit.value).decode()])
+        for offset in range(self.min_offset(), self.max_offset() + 1):
+            token = ",".join(
+                "?" + lit.feature.decode()
+                for lit in self.template
+                if lit.offset == offset
+            )
+            literal = ",".join(
+                f'{lit.feature.decode()}{"≠" if lit.negative else "="}"{val}"'
+                for lit in self.literals
+                if lit.offset == offset
+                for val in [lit.corpus.lookup_value(lit.feature, lit.value).decode()]
+            )
             if literal:
-                tokens.append(token + '|' + literal)
+                tokens.append(token + "|" + literal)
             else:
                 tokens.append(token)
-        return ''.join('[' + tok + ']' for tok in tokens)
+        return "".join("[" + tok + "]" for tok in tokens)
 
     def __iter__(self) -> Iterator[TemplateLiteral]:
         return iter(self.template)
@@ -167,17 +189,21 @@ class Template:
     def __len__(self) -> int:
         return self.size
 
-    def instantiate(self, corpus: Corpus, pos: int) -> Optional['Instance']:
+    def instantiate(self, corpus: Corpus, pos: int) -> Optional["Instance"]:
         if not all(lit.test(pos) for lit in self.literals):
             return None
-        return mkInstance(tuple(corpus.tokens[tmpl.feature][pos + tmpl.offset] for tmpl in self.template))
+        return mkInstance(
+            tuple(
+                corpus.tokens[tmpl.feature][pos + tmpl.offset] for tmpl in self.template
+            )
+        )
 
     @staticmethod
-    def parse(corpus: Corpus, template_str: str) -> 'Template':
+    def parse(corpus: Corpus, template_str: str) -> "Template":
         try:
             literals: list[KnownLiteral] = []
             template: list[TemplateLiteral] = []
-            for litstr in template_str.split('+'):
+            for litstr in template_str.split("+"):
                 try:
                     literals.append(KnownLiteral.parse(corpus, litstr))
                 except ValueError:
@@ -185,7 +211,8 @@ class Template:
             return Template(template, literals)
         except (ValueError, AssertionError):
             raise ValueError(
-                "Ill-formed template - it should be on the form pos:0 or word:0+pos:2: " + template_str
+                "Ill-formed template - it should be on the form pos:0 or word:0+pos:2: "
+                + template_str
             )
 
 
@@ -194,8 +221,9 @@ class Template:
 ## Implemented as a sorted array of interned strings
 ## This is a kind of modified suffix array - a "pruned" SA if you like
 
+
 class Index:
-    dir_suffix: str = '.indexes'
+    dir_suffix: str = ".indexes"
     corpus: Corpus
     template: Template
     index: DiskIntArray
@@ -208,12 +236,12 @@ class Index:
         self.index = DiskIntArray(self.path)
 
     def __str__(self) -> str:
-        return self.__class__.__name__ + ':' + str(self.template)
+        return self.__class__.__name__ + ":" + str(self.template)
 
     def __len__(self) -> int:
         return len(self.index)
 
-    def __enter__(self) -> 'Index':
+    def __enter__(self) -> "Index":
         return self
 
     def __exit__(self, *_: Any) -> None:
@@ -228,7 +256,9 @@ class Index:
     def search(self, instance: Instance, offset: int = 0) -> IndexSet:
         set_start, set_end = self.lookup_instance(instance)
         set_size = set_end - set_start + 1
-        iset = IndexSet(self.index, path=self.path, start=set_start, size=set_size, offset=offset)
+        iset = IndexSet(
+            self.index, path=self.path, start=set_start, size=set_size, offset=offset
+        )
         return iset
 
     def lookup_instance(self, instance: Instance) -> tuple[int, int]:
@@ -243,12 +273,15 @@ class Index:
             instance = self.template.instantiate(self.corpus, pos)
             assert instance is not None
             if prev_instance is not None:
-                assert prev_instance <= instance, f"Index position {i}: {prev_instance} > {instance}"
+                assert prev_instance <= instance, (
+                    f"Index position {i}: {prev_instance} > {instance}"
+                )
                 if prev_instance == instance:
-                    assert prev_pos < pos, f"Index position {i}: {prev_instance} == {instance} but {prev_pos} >= {pos}"
+                    assert prev_pos < pos, (
+                        f"Index position {i}: {prev_instance} == {instance} but {prev_pos} >= {pos}"
+                    )
             prev_pos = pos
             prev_instance = instance
-
 
     @staticmethod
     def indexpath(corpus: Corpus, template: Template) -> Path:
@@ -256,18 +289,22 @@ class Index:
         return basepath / str(template) / str(template)
 
     @staticmethod
-    def get(corpus: Corpus, template: Template) -> 'Index':
+    def get(corpus: Corpus, template: Template) -> "Index":
         if len(template) == 1:
             return UnaryIndex(corpus, template)
         elif len(template) == 2:
             return BinaryIndex(corpus, template)
         else:
-            raise ValueError(f"Cannot handle indexes of length {len(template)}: {template}")
+            raise ValueError(
+                f"Cannot handle indexes of length {len(template)}: {template}"
+            )
 
 
 class UnaryIndex(Index):
     def __init__(self, corpus: Corpus, template: Template) -> None:
-        assert len(template) == 1, f"UnaryIndex templates must have length 1: {template}"
+        assert len(template) == 1, (
+            f"UnaryIndex templates must have length 1: {template}"
+        )
         super().__init__(corpus, template)
 
     def search_key(self) -> Callable[[int], InternedString]:
@@ -280,17 +317,23 @@ class UnaryIndex(Index):
     def lookup_instance(self, instance: Instance) -> tuple[int, int]:
         assert len(instance) == 1, f"UnaryIndex instance must have length 1: {instance}"
         ((value1, value2),) = instance
-        error = (value1 == value2)
-        return binsearch_range(0, len(self)-1, value1, value2, self.search_key(), error=error)
+        error = value1 == value2
+        return binsearch_range(
+            0, len(self) - 1, value1, value2, self.search_key(), error=error
+        )
 
 
 class BinaryIndex(Index):
     def __init__(self, corpus: Corpus, template: Template) -> None:
-        assert len(template) == 2, f"BinaryIndex templates must have length 2: {template}"
+        assert len(template) == 2, (
+            f"BinaryIndex templates must have length 2: {template}"
+        )
         super().__init__(corpus, template)
 
     def lookup_instance(self, instance: Instance) -> tuple[int, int]:
-        assert len(instance) == 2, f"BinaryIndex instance must have length 2: {instance}"
+        assert len(instance) == 2, (
+            f"BinaryIndex instance must have length 2: {instance}"
+        )
         ((left1, left2), (right1, right2)) = instance
         if left1 != left2:
             raise KeyError("BinaryIndex cannot have a range as left value")
@@ -299,8 +342,11 @@ class BinaryIndex(Index):
         features1 = self.corpus.tokens[tmpl1.feature]
         features2 = self.corpus.tokens[tmpl2.feature]
         index = self.index.array
+
         def search_key(k: int) -> InternedRange:
             return (features1[index[k] + offset1], features2[index[k] + offset2])
-        error = (right1 == right2)
-        return binsearch_range(0, len(self)-1, (left1, right1), (left2, right2), search_key, error=error)
 
+        error = right1 == right2
+        return binsearch_range(
+            0, len(self) - 1, (left1, right1), (left2, right2), search_key, error=error
+        )

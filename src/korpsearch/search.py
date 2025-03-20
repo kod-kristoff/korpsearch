@@ -1,30 +1,29 @@
-
 import hashlib
-from pathlib import Path
-import logging
 import json
+import logging
 import time
-from typing import Any
 from argparse import Namespace
+from pathlib import Path
+from typing import Any
 
-from index import Index, BinaryIndex
-from indexset import IndexSet, MergeType
-from corpus import Corpus
-from query import Query
-from util import Feature, SENTENCE, WORD
-from disk import DiskIntArray
+from korpsearch.corpus import Corpus
+from korpsearch.disk import DiskIntArray
+from korpsearch.index import BinaryIndex, Index
+from korpsearch.indexset import IndexSet, MergeType
+from korpsearch.query import Query
+from korpsearch.util import SENTENCE, WORD, Feature
 
-CACHE_DIR = Path('cache')
+CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-INFO_FILE = Path('__info__')
+INFO_FILE = Path("__info__")
 
 
 def hash_repr(*objs: object, size: int = 32) -> str:
     hasher = hashlib.md5()
     for obj in objs:
         hasher.update(repr(obj).encode())
-    return hasher.hexdigest() [:size]
+    return hasher.hexdigest()[:size]
 
 
 def get_cache_file(args: Namespace, query: Query, **extra_args: object) -> Path | None:
@@ -36,20 +35,25 @@ def get_cache_file(args: Namespace, query: Query, **extra_args: object) -> Path 
         query_dir.mkdir()
     info_file = query_dir / INFO_FILE
     if not info_file.is_file():
-        with open(info_file, 'w') as INFO:
-            print(json.dumps({
-                'name': query.corpus.name,
-                'id': query.corpus.id,
-            }), file=INFO)
+        with open(info_file, "w") as INFO:
+            print(
+                json.dumps(
+                    {
+                        "name": query.corpus.name,
+                        "id": query.corpus.id,
+                    }
+                ),
+                file=INFO,
+            )
     query_hash = hash_repr(query, extra_args, size=32)
     return DiskIntArray.getpath(query_dir / query_hash)
 
 
-def is_cache_file(cache_file: Path|None) -> bool:
+def is_cache_file(cache_file: Path | None) -> bool:
     return isinstance(cache_file, Path) and cache_file.is_relative_to(CACHE_DIR)
 
 
-def try_open_cache(cache_file: Path|None, args: Namespace) -> IndexSet | None:
+def try_open_cache(cache_file: Path | None, args: Namespace) -> IndexSet | None:
     try:
         assert cache_file and not args.no_cache
         result = IndexSet.open(cache_file)
@@ -60,23 +64,30 @@ def try_open_cache(cache_file: Path|None, args: Namespace) -> IndexSet | None:
         return None
 
 
-def collect_and_sort_prefix(index_view: IndexSet, sorted_file: Path|None, args: Namespace) -> IndexSet:
+def collect_and_sort_prefix(
+    index_view: IndexSet, sorted_file: Path | None, args: Namespace
+) -> IndexSet:
     try:
         assert not args.internal_merge
         from fast_merge import sort  # type: ignore
     except (ModuleNotFoundError, AssertionError):
-        from merge import sort
+        from korpsearch.merge import sort
     result = DiskIntArray.create(index_view.size, sorted_file)
     sort(index_view.values.array, index_view.start, index_view.size, result.array)
-    return IndexSet(result, path = sorted_file, offset = index_view.offset)
+    return IndexSet(result, path=sorted_file, offset=index_view.offset)
 
 
-def run_outer_query(query: Query, results_file: Path|None, args: Namespace) -> IndexSet:
+def run_outer_query(
+    query: Query, results_file: Path | None, args: Namespace
+) -> IndexSet:
     partial_queries = list(query.expand())
     if len(partial_queries) <= 1:
         return run_inner_query(query, results_file, args)
 
-    union_files = [get_cache_file(args, q, num=n, outer=query) for n, q in enumerate(partial_queries)]
+    union_files = [
+        get_cache_file(args, q, num=n, outer=query)
+        for n, q in enumerate(partial_queries)
+    ]
     union_files[-1] = results_file
     union = None
     for partial_query, union_file in zip(partial_queries, union_files):
@@ -100,8 +111,8 @@ def run_outer_query(query: Query, results_file: Path|None, args: Namespace) -> I
             union_type = union.merge_update(
                 partial_results,
                 union_file,
-                use_internal = args.internal_merge,
-                merge_type = MergeType.UNION,
+                use_internal=args.internal_merge,
+                merge_type=MergeType.UNION,
             )
             logging.info(f"  \\/{union_type[0].upper()}  = {union}")
             if partial_results.path != union.path:
@@ -111,7 +122,9 @@ def run_outer_query(query: Query, results_file: Path|None, args: Namespace) -> I
     return union
 
 
-def run_inner_query(query: Query, results_file: Path|None, args: Namespace) -> IndexSet:
+def run_inner_query(
+    query: Query, results_file: Path | None, args: Namespace
+) -> IndexSet:
     search_results: list[tuple[Query, IndexSet]] = []
     subqueries: list[tuple[Query, Index]] = []
     for subq in query.subqueries():
@@ -130,7 +143,9 @@ def run_inner_query(query: Query, results_file: Path|None, args: Namespace) -> I
             continue
         if isinstance(index, BinaryIndex) and subq.contains_prefix():
             if index.getconfig().get("min_frequency", 0) > 0:
-                logging.debug(f"     -- skipping: {subq}, because prefix query and min-frequency binary index")
+                logging.debug(
+                    f"     -- skipping: {subq}, because prefix query and min-frequency binary index"
+                )
                 continue
         try:
             results = index.search(subq.instance(), offset=subq.min_offset())
@@ -144,9 +159,11 @@ def run_inner_query(query: Query, results_file: Path|None, args: Namespace) -> I
     first_query = search_results[0][0]
     if first_query.is_negative() or first_query.contains_prefix():
         try:
-            first_ok = [q.is_negative() or q.contains_prefix() for q,_ in search_results].index(False)
+            first_ok = [
+                q.is_negative() or q.contains_prefix() for q, _ in search_results
+            ].index(False)
         except ValueError:
-            first_ok = [q.contains_prefix() for q,_ in search_results].index(True)
+            first_ok = [q.contains_prefix() for q, _ in search_results].index(True)
         first_result = search_results[first_ok]
         del search_results[first_ok]
         search_results.insert(0, first_result)
@@ -182,10 +199,14 @@ def run_inner_query(query: Query, results_file: Path|None, args: Namespace) -> I
             intersection_type = intersection.merge_update(
                 results,
                 results_file,
-                use_internal = args.internal_merge,
-                merge_type = MergeType.DIFFERENCE if subq.is_negative() else MergeType.INTERSECTION
+                use_internal=args.internal_merge,
+                merge_type=MergeType.DIFFERENCE
+                if subq.is_negative()
+                else MergeType.INTERSECTION,
             )
-            logging.info(f" /\\{intersection_type[0].upper()} {subq!s:{maxwidth}} = {intersection}")
+            logging.info(
+                f" /\\{intersection_type[0].upper()} {subq!s:{maxwidth}} = {intersection}"
+            )
 
         used_queries.append(subq)
         if len(intersection) == 0:
@@ -199,11 +220,13 @@ def run_inner_query(query: Query, results_file: Path|None, args: Namespace) -> I
     return intersection
 
 
-def run_query(query: Query, results_file: Path|None, args: Namespace) -> IndexSet:
+def run_query(query: Query, results_file: Path | None, args: Namespace) -> IndexSet:
     result = run_outer_query(query, results_file, args)
     if is_cache_file(result.path) and result.path != results_file:
         assert result.path is not None and results_file is not None
-        DiskIntArray.getconfig(result.path).replace(DiskIntArray.getconfig(results_file))
+        DiskIntArray.getconfig(result.path).replace(
+            DiskIntArray.getconfig(results_file)
+        )
         result.path.replace(results_file)
         result.path = results_file
     return result
@@ -223,7 +246,9 @@ def search_corpus(query: Query, args: Namespace) -> IndexSet:
     assert unfiltered_results_file != final_results_file
     unfiltered_results = try_open_cache(unfiltered_results_file, args)
     if unfiltered_results is not None:
-        logging.debug(f"Using cached unfiltered results file: {unfiltered_results_file}")
+        logging.debug(
+            f"Using cached unfiltered results file: {unfiltered_results_file}"
+        )
     else:
         unfiltered_results = run_query(query, unfiltered_results_file, args)
         logging.debug(f"Unfiltered results: {unfiltered_results}")
@@ -255,16 +280,18 @@ def main_search(args: Namespace) -> dict[str, Any]:
             logging.info(f"Query: {query}")
 
             if args.show:
-                features_to_show = [Feature(f) for f in args.show.encode().split(b',')]
+                features_to_show = [Feature(f) for f in args.show.encode().split(b",")]
                 for f in features_to_show:
                     if f not in corpus.features():
                         raise ValueError(f"Unknown feature: {f!r}")
             else:
                 features_to_show = [
-                    feat for feat in corpus.features()
+                    feat
+                    for feat in corpus.features()
                     if feat in query.features
-                    if args.no_sentence_breaks or feat != SENTENCE  # don't show the sentence feature
-                    if not feat.endswith(b'_rev')  # don't show reversed features
+                    if args.no_sentence_breaks
+                    or feat != SENTENCE  # don't show the sentence feature
+                    if not feat.endswith(b"_rev")  # don't show reversed features
                 ]
 
             # Always include the 'word' feature, and put it first
@@ -280,9 +307,11 @@ def main_search(args: Namespace) -> dict[str, Any]:
             if start < len(results) and end >= 0:
                 query_offset = query.max_offset() + 1
                 try:
-                    for match_pos in results.slice(max(0, start), end+1):
+                    for match_pos in results.slice(max(0, start), end + 1):
                         sentence = corpus.get_sentence_from_position(match_pos)
-                        match_start = match_pos - corpus.sentence_pointers.array[sentence]
+                        match_start = (
+                            match_pos - corpus.sentence_pointers.array[sentence]
+                        )
                         tokens = [
                             {
                                 feat.decode(): strings.interned_string(strings[p])
@@ -292,16 +321,18 @@ def main_search(args: Namespace) -> dict[str, Any]:
                             for p in corpus.sentence_positions(sentence)
                         ]
 
-                        matches.append({
-                            'corpus': corpus.name,
-                            'match': {
-                                'start': match_start,
-                                'end': match_start + query_offset,
-                                'position': match_pos,
-                            },
-                            'sentence': sentence,
-                            'tokens': tokens,
-                        })
+                        matches.append(
+                            {
+                                "corpus": corpus.name,
+                                "match": {
+                                    "start": match_start,
+                                    "end": match_start + query_offset,
+                                    "position": match_pos,
+                                },
+                                "sentence": sentence,
+                                "tokens": tokens,
+                            }
+                        )
                 except IndexError:
                     pass
 
@@ -309,12 +340,11 @@ def main_search(args: Namespace) -> dict[str, Any]:
             end -= len(results)
 
     return {
-        'time': time.time() - start_time,
-        'hits': sum(corpus_hits.values()),
-        'corpus_hits': corpus_hits,
-        'corpus_order': list(corpus_hits),
-        'start': args.start,
-        'end': args.start + len(matches),
-        'kwic': matches,
+        "time": time.time() - start_time,
+        "hits": sum(corpus_hits.values()),
+        "corpus_hits": corpus_hits,
+        "corpus_order": list(corpus_hits),
+        "start": args.start,
+        "end": args.start + len(matches),
+        "kwic": matches,
     }
-

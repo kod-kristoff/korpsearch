@@ -1,31 +1,46 @@
-
-import re
 import itertools
-from typing import Literal
+import re
 from collections.abc import Iterator, Sequence
+from typing import Literal
 
-from index import KnownLiteral, DisjunctiveGroup, TemplateLiteral, Template, Instance, mkInstance, Index
-from corpus import Corpus
-from util import Feature, FValue, SENTENCE, START
-
+from korpsearch.corpus import Corpus
+from korpsearch.index import (
+    DisjunctiveGroup,
+    Index,
+    Instance,
+    KnownLiteral,
+    Template,
+    TemplateLiteral,
+    mkInstance,
+)
+from korpsearch.util import SENTENCE, START, Feature, FValue
 
 ################################################################################
 ## Queries
 
 QueryElement = KnownLiteral | DisjunctiveGroup
 
+
 def get_query_literals(query_element: QueryElement) -> tuple[KnownLiteral, ...]:
     if isinstance(query_element, KnownLiteral):
         return (query_element,)
-    else: # isinstance(query_element, DisjunctiveGroup):
+    else:  # isinstance(query_element, DisjunctiveGroup):
         return query_element.literals
 
 
 class Query:
-    _token_re_string = r' ([|&]?) \s* ([\w_]+) \s* (!?) (?:=|contains) \s* "\s*([^"]+?)\s*" '
-    token_regex = re.compile(rf'               {_token_re_string}                 ', re.X)
-    query_regex = re.compile(rf'       \[ \s* ({_token_re_string} \s*)* \]        ', re.X)
-    fullq_regex = re.compile(rf'^ \s* (\[ \s* ({_token_re_string} \s*)* \] \s*)+ $', re.X)
+    _token_re_string = (
+        r' ([|&]?) \s* ([\w_]+) \s* (!?) (?:=|contains) \s* "\s*([^"]+?)\s*" '
+    )
+    token_regex = re.compile(
+        rf"               {_token_re_string}                 ", re.X
+    )
+    query_regex = re.compile(
+        rf"       \[ \s* ({_token_re_string} \s*)* \]        ", re.X
+    )
+    fullq_regex = re.compile(
+        rf"^ \s* (\[ \s* ({_token_re_string} \s*)* \] \s*)+ $", re.X
+    )
 
     corpus: Corpus
     literals: list[QueryElement]
@@ -37,14 +52,17 @@ class Query:
         self.corpus = corpus
         self.literals = sorted(set(literals), key=get_query_literals)
         self.features = {
-            lit.feature for query_element in self.literals
+            lit.feature
+            for query_element in self.literals
             for lit in get_query_literals(query_element)
         }
 
         # We cannot handle non-atomic querues with only negative literals
         # -A & -B == -(A v B), since we cannot handle union (yet)
         if len(self) > 1 and self.is_negative():
-            raise ValueError(f"Cannot handle non-atomic queries with no positive literals: {self}")
+            raise ValueError(
+                f"Cannot handle non-atomic queries with no positive literals: {self}"
+            )
 
         # # This is a variant of self.query, optimised for checking a query at a corpus position:
         # self.featured_query = {f: [] for f in self.features}
@@ -58,17 +76,32 @@ class Query:
             self.template = None
         elif self.is_negative():
             self.template = Template(
-                [TemplateLiteral(lit.offset-self.min_offset(), lit.feature) for lit in self.negative_literals()],
+                [
+                    TemplateLiteral(lit.offset - self.min_offset(), lit.feature)
+                    for lit in self.negative_literals()
+                ],
             )
         else:
             self.template = Template(
-                [TemplateLiteral(lit.offset-self.min_offset(), lit.feature) for lit in self.positive_literals()],
-                [KnownLiteral(True, lit.offset-self.min_offset(), lit.feature, lit.value, lit.value2, corpus) for lit in self.negative_literals()],
+                [
+                    TemplateLiteral(lit.offset - self.min_offset(), lit.feature)
+                    for lit in self.positive_literals()
+                ],
+                [
+                    KnownLiteral(
+                        True,
+                        lit.offset - self.min_offset(),
+                        lit.feature,
+                        lit.value,
+                        lit.value2,
+                        corpus,
+                    )
+                    for lit in self.negative_literals()
+                ],
             )
 
-
     def __str__(self) -> str:
-        return '[' + ']&['.join(map(str, self.literals)) + ']'
+        return "[" + "]&[".join(map(str, self.literals)) + "]"
 
     def __repr__(self) -> str:
         return f"Query({self.literals})"
@@ -86,16 +119,30 @@ class Query:
         return not self.positive_literals()
 
     def positive_literals(self) -> list[KnownLiteral]:
-        return [lit for lit in self.literals if isinstance(lit, KnownLiteral) if not lit.negative]
+        return [
+            lit
+            for lit in self.literals
+            if isinstance(lit, KnownLiteral)
+            if not lit.negative
+        ]
 
     def negative_literals(self) -> list[KnownLiteral]:
-        return [lit for lit in self.literals if isinstance(lit, KnownLiteral) if lit.negative]
+        return [
+            lit
+            for lit in self.literals
+            if isinstance(lit, KnownLiteral)
+            if lit.negative
+        ]
 
     def instance(self) -> Instance:
         if self.is_negative():
-            return mkInstance([(lit.value, lit.value2) for lit in self.negative_literals()])
+            return mkInstance(
+                [(lit.value, lit.value2) for lit in self.negative_literals()]
+            )
         else:
-            return mkInstance([(lit.value, lit.value2) for lit in self.positive_literals()])
+            return mkInstance(
+                [(lit.value, lit.value2) for lit in self.positive_literals()]
+            )
 
     def index(self) -> Index:
         assert self.template
@@ -107,22 +154,26 @@ class Query:
     def contains_prefix(self) -> bool:
         return any(lit.is_prefix() for lit in self.literals)
 
-    def expand(self) -> Iterator['Query']:
-        groups = [group.literals for group in self.literals if isinstance(group, DisjunctiveGroup)]
+    def expand(self) -> Iterator["Query"]:
+        groups = [
+            group.literals
+            for group in self.literals
+            if isinstance(group, DisjunctiveGroup)
+        ]
         singles = [lit for lit in self.literals if isinstance(lit, KnownLiteral)]
         for group in itertools.product(*groups):
             yield Query(self.corpus, singles + list(group))
 
-    def subqueries(self) -> Iterator['Query']:
+    def subqueries(self) -> Iterator["Query"]:
         # Subqueries are generated in decreasing order of complexity
         for n in reversed(range(len(self))):
-            for literals in itertools.combinations(self.literals, n+1):
+            for literals in itertools.combinations(self.literals, n + 1):
                 try:
                     yield Query(self.corpus, literals)
                 except ValueError:
                     pass
 
-    def subsumed_by(self, others: list['Query']) -> bool:
+    def subsumed_by(self, others: list["Query"]) -> bool:
         other_literals = {lit for other_query in others for lit in other_query.literals}
         return set(self.literals).issubset(other_literals)
 
@@ -137,9 +188,7 @@ class Query:
 
     # Right now this function is not optimized and can not give false for cases such as [a&b|c&d]
     def check_position(self, pos: int) -> bool:
-        return all(
-            lit.check_position(self.corpus, pos) for lit in self.literals
-        )
+        return all(lit.check_position(self.corpus, pos) for lit in self.literals)
         # return all(
         #     (self.corpus.tokens[lit.feature][pos + lit.offset] == lit.value) != lit.negative
         #     for lit in self.literals
@@ -152,18 +201,22 @@ class Query:
         # return True
 
     @staticmethod
-    def _classify_value(value: str) -> Literal['normal'] | Literal['prefix'] | Literal['suffix'] | Literal['regex']:
+    def _classify_value(
+        value: str,
+    ) -> Literal["normal"] | Literal["prefix"] | Literal["suffix"] | Literal["regex"]:
         if value.isalnum():
-            return 'normal'
-        elif value.endswith('.*') and value[:-2].isalnum():
-            return 'prefix'
-        elif value.startswith('.*') and value[2:].isalnum():
-            return 'suffix'
+            return "normal"
+        elif value.endswith(".*") and value[:-2].isalnum():
+            return "prefix"
+        elif value.startswith(".*") and value[2:].isalnum():
+            return "suffix"
         else:
-            return 'regex'
+            return "regex"
 
     @staticmethod
-    def parse(corpus: Corpus, querystr: str, no_sentence_breaks: bool = False) -> 'Query':
+    def parse(
+        corpus: Corpus, querystr: str, no_sentence_breaks: bool = False
+    ) -> "Query":
         if not Query.fullq_regex.match(querystr):
             raise ValueError(f"Error in query: {querystr!r}")
         tokens = [tok.group() for tok in Query.query_regex.finditer(querystr)]
@@ -172,41 +225,82 @@ class Query:
             query_list: list[list[KnownLiteral]] = [[]]
             for match in Query.token_regex.finditer(token):
                 separator, featstr, negated, valstr = match.groups()
-                if separator == '|' and query_list[-1]:
+                if separator == "|" and query_list[-1]:
                     query_list.append([])
                 feature = Feature(featstr.lower().encode())
-                negative = (negated == '!')
+                negative = negated == "!"
                 value_type = Query._classify_value(valstr)
                 match value_type:
-                    case 'normal':
+                    case "normal":
                         value = FValue(valstr.encode())
                         interned_string = corpus.intern(feature, value)
-                        query_list[-1].append(KnownLiteral(negative, offset, feature, interned_string, interned_string, corpus))
-                    case 'prefix':
-                        valstr = valstr.split('.*')[0]
+                        query_list[-1].append(
+                            KnownLiteral(
+                                negative,
+                                offset,
+                                feature,
+                                interned_string,
+                                interned_string,
+                                corpus,
+                            )
+                        )
+                    case "prefix":
+                        valstr = valstr.split(".*")[0]
                         value = FValue(valstr.encode())
                         interned_range = corpus.interned_range(feature, value)
-                        query_list[-1].append(KnownLiteral(negative, offset, feature, interned_range[0], interned_range[1], corpus))
-                    case 'suffix':
-                        valstr = valstr.split('.*')[-1][::-1]
+                        query_list[-1].append(
+                            KnownLiteral(
+                                negative,
+                                offset,
+                                feature,
+                                interned_range[0],
+                                interned_range[1],
+                                corpus,
+                            )
+                        )
+                    case "suffix":
+                        valstr = valstr.split(".*")[-1][::-1]
                         value = FValue(valstr.encode())
-                        feature = Feature(feature + b'_rev')
+                        feature = Feature(feature + b"_rev")
                         interned_range = corpus.interned_range(feature, value)
-                        query_list[-1].append(KnownLiteral(negative, offset, feature, interned_range[0], interned_range[1], corpus))
-                    case 'regex':
+                        query_list[-1].append(
+                            KnownLiteral(
+                                negative,
+                                offset,
+                                feature,
+                                interned_range[0],
+                                interned_range[1],
+                                corpus,
+                            )
+                        )
+                    case "regex":
                         regex_matches = corpus.get_matches(feature, valstr)
-                        regexed_literals = [KnownLiteral(negative, offset, feature, match, match, corpus) for match in regex_matches]
+                        regexed_literals = [
+                            KnownLiteral(
+                                negative, offset, feature, match, match, corpus
+                            )
+                            for match in regex_matches
+                        ]
                         last_group = query_list.pop()
-                        query_list.extend(last_group + [lit] for lit in regexed_literals)
+                        query_list.extend(
+                            last_group + [lit] for lit in regexed_literals
+                        )
             if len(query_list) > 1:
-                query.extend(DisjunctiveGroup.create(literals) for literals in itertools.product(*query_list))
+                query.extend(
+                    DisjunctiveGroup.create(literals)
+                    for literals in itertools.product(*query_list)
+                )
             elif query_list:
                 query.extend(*query_list)
         if not no_sentence_breaks:
             svalue = corpus.intern(SENTENCE, START)
             for offset in range(1, len(tokens)):
-                query.append(KnownLiteral(True, offset, SENTENCE, svalue, svalue, corpus))
+                query.append(
+                    KnownLiteral(True, offset, SENTENCE, svalue, svalue, corpus)
+                )
         if not query:
-            raise ValueError(f"Found no matching query literals")
-        assert not all(lit.negative for lit in query), "Cannot handle queries with only negative literals"
+            raise ValueError("Found no matching query literals")
+        assert not all(lit.negative for lit in query), (
+            "Cannot handle queries with only negative literals"
+        )
         return Query(corpus, query)

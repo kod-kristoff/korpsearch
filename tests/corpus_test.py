@@ -1,16 +1,16 @@
 import os
 import unittest
-from unittest.mock import MagicMock
 from pathlib import Path
-from tempfile import TemporaryDirectory, NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import List
+from unittest.mock import MagicMock
 
 from build_indexes import yield_templates
-from corpus import Corpus
-from index import Index
-from index_builder import build_index
-from query import Query
-from search import search_corpus
+from korpsearch.corpus import Corpus
+from korpsearch.index import Index
+from korpsearch.index_builder import build_index
+from korpsearch.query import Query
+from korpsearch.search import search_corpus
 
 
 class CorpusTest(unittest.TestCase):
@@ -21,19 +21,19 @@ class CorpusTest(unittest.TestCase):
     corpus_source_file: NamedTemporaryFile
     corpus_ready: bool
 
-    corpus_name: str = 'corpus'
+    corpus_name: str = "corpus"
 
     def setUp(self):
         super().setUp()
         self.args = MagicMock()
-        self.args.pivot_selector = 'first'
+        self.args.pivot_selector = "first"
         self.args.cutoff = None
         self.args.filter = None
 
         self.declared_corpus_features = []
         self.declared_corpus_data = []
         self.root_dir = TemporaryDirectory()
-        self.corpus_source_file = NamedTemporaryFile(suffix='.csv', delete=False)
+        self.corpus_source_file = NamedTemporaryFile(suffix=".csv", delete=False)
         self.corpus_ready = False
 
     def tearDown(self):
@@ -57,20 +57,29 @@ class CorpusTest(unittest.TestCase):
 
         Returns the corpus position to which the data was inserted.
         """
-        self.assertNotEqual(len(self.declared_corpus_features), 0,
-                            msg='Cannot add data to corpus without defined features.')
+        self.assertNotEqual(
+            len(self.declared_corpus_features),
+            0,
+            msg="Cannot add data to corpus without defined features.",
+        )
 
         number_of_features = len(self.declared_corpus_features)
         number_of_columns = len(data_columns)
-        self.assertEqual(number_of_features, number_of_columns,
-                         msg=f'Expected {number_of_features} columns of data but {number_of_columns} were provided')
+        self.assertEqual(
+            number_of_features,
+            number_of_columns,
+            msg=f"Expected {number_of_features} columns of data but {number_of_columns} were provided",
+        )
 
         first_column_length = len(data_columns[0])
         inserted_at_position = len(self.declared_corpus_data[0])
         for index, attribute in enumerate(self.declared_corpus_features):
             row = data_columns[index]
-            self.assertEqual(first_column_length, len(row),
-                             msg=f'Attribute {attribute} expected {first_column_length} values but got {len(row)}')
+            self.assertEqual(
+                first_column_length,
+                len(row),
+                msg=f"Attribute {attribute} expected {first_column_length} values but got {len(row)}",
+            )
 
             self.declared_corpus_data[index].extend(data_columns[index])
         return inserted_at_position
@@ -82,7 +91,9 @@ class CorpusTest(unittest.TestCase):
         if self.corpus_ready:
             return
 
-        reversed_features = [f'{feature}_rev' for feature in self.declared_corpus_features]
+        reversed_features = [
+            f"{feature}_rev" for feature in self.declared_corpus_features
+        ]
         self.args.features = self.declared_corpus_features + reversed_features
         self.args.no_sentence_breaks = True
         self.args.max_dist = 0
@@ -90,11 +101,15 @@ class CorpusTest(unittest.TestCase):
         with self.corpus_source_file as source_file:
             self._write_source_file(source_file)
 
-            dir_corpus = Path(self.root_dir.name) / (CorpusTest.corpus_name + Corpus.dir_suffix)
+            dir_corpus = Path(self.root_dir.name) / (
+                CorpusTest.corpus_name + Corpus.dir_suffix
+            )
             dir_corpus.mkdir(exist_ok=True)
             Corpus.build(dir_corpus, Path(source_file.name))
 
-            dir_index = Path(self.root_dir.name) / (CorpusTest.corpus_name + Index.dir_suffix)
+            dir_index = Path(self.root_dir.name) / (
+                CorpusTest.corpus_name + Index.dir_suffix
+            )
             dir_index.mkdir(exist_ok=True)
             with self.get_corpus() as corpus:
                 for template in yield_templates(corpus, self.args):
@@ -102,11 +117,19 @@ class CorpusTest(unittest.TestCase):
         self.corpus_ready = True
 
     def _write_source_file(self, file):
-        header = '\t'.join(self.declared_corpus_features) + '\n'
+        header = "\t".join(self.declared_corpus_features) + "\n"
         file.write(header.encode())
         for token in range(len(self.declared_corpus_data[0])):
             attributes = range(len(self.declared_corpus_features))
-            row = '\t'.join([self.declared_corpus_data[attribute][token] for attribute in attributes]) + '\n'
+            row = (
+                "\t".join(
+                    [
+                        self.declared_corpus_data[attribute][token]
+                        for attribute in attributes
+                    ]
+                )
+                + "\n"
+            )
             file.write(row.encode())
         file.flush()
 
@@ -131,11 +154,17 @@ class CorpusTest(unittest.TestCase):
         self._prepare_corpus_if_not_prepared()
         with self.get_corpus() as corpus:
             result = self.execute_test_query(corpus, query)
-            self.assertEqual(len(result), len(needles),
-                             msg=f'Query should find {len(needles)} result(s) but found {len(result)}.')
+            self.assertEqual(
+                len(result),
+                len(needles),
+                msg=f"Query should find {len(needles)} result(s) but found {len(result)}.",
+            )
             for needle in needles:
-                self.assertIn(needle + offset, result,
-                              msg=f'Query failed to return expected token at position {needle + offset}.')
+                self.assertIn(
+                    needle + offset,
+                    result,
+                    msg=f"Query failed to return expected token at position {needle + offset}.",
+                )
 
     def assert_search_has_attributes(self, query: str, **attributes):
         """
@@ -146,12 +175,15 @@ class CorpusTest(unittest.TestCase):
             result = self.execute_test_query(corpus, query)
 
             if len(result) == 0:
-                self.fail('No results found for query.')
+                self.fail("No results found for query.")
 
             for position, element in enumerate(result):
                 for feature, expected_value in attributes.items():
                     strings = corpus.tokens[feature.encode()]
                     actual_value = strings.interned_string(strings[element])
 
-                    self.assertEqual(expected_value, actual_value,
-                                     msg=f'Feature {feature} on result #{position} should be {expected_value} but is {actual_value}.')
+                    self.assertEqual(
+                        expected_value,
+                        actual_value,
+                        msg=f"Feature {feature} on result #{position} should be {expected_value} but is {actual_value}.",
+                    )
