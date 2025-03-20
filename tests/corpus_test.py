@@ -105,6 +105,7 @@ class CorpusTest(unittest.TestCase):
                 CorpusTest.corpus_name + Corpus.dir_suffix
             )
             dir_corpus.mkdir(exist_ok=True)
+            # FIXME: args gives 'Namespace' has no attribute 'no_reversed_features'
             Corpus.build(dir_corpus, Path(source_file.name))
 
             dir_index = Path(self.root_dir.name) / (
