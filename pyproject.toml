@@ -27,3 +27,8 @@ members = ["korpsearch-fast-merge"]
 
 [tool.uv.sources]
 korpsearch-fast-merge = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
