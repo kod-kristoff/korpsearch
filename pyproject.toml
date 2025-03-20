@@ -9,6 +9,17 @@ authors = [
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+fast-merge = [
+    "korpsearch-fast-merge",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.workspace]
+members = ["korpsearch-fast-merge"]
+
+[tool.uv.sources]
+korpsearch-fast-merge = { workspace = true }

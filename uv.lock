@@ -1,0 +1,28 @@
+version = 1
+revision = 1
+requires-python = ">=3.12"
+
+[manifest]
+members = [
+    "korpsearch",
+    "korpsearch-fast-merge",
+]
+
+[[package]]
+name = "korpsearch"
+version = "0.1.0"
+source = { editable = "." }
+
+[package.optional-dependencies]
+fast-merge = [
+    { name = "korpsearch-fast-merge" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "korpsearch-fast-merge", marker = "extra == 'fast-merge'", editable = "korpsearch-fast-merge" }]
+provides-extras = ["fast-merge"]
+
+[[package]]
+name = "korpsearch-fast-merge"
+version = "0.1.0"
+source = { editable = "korpsearch-fast-merge" }
