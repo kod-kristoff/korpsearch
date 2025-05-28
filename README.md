@@ -1,4 +1,3 @@
-
 # Korp-search
 
 Searching in very large corpora.
@@ -12,7 +11,7 @@ You can read more about the underlying technology in this paper:
 
 Peter Ljunglöf, Nicholas Smallbone, Mijo Thoresson, and Victor Salomonsson (2024).
 [Binary indexes for optimising corpus queries](https://aclanthology.org/2024.konvens-main.17/).
-In *KONVENS 2024, 20th Conference on Natural Language Processing*, pages 149–158, Vienna, Austria.
+In _KONVENS 2024, 20th Conference on Natural Language Processing_, pages 149–158, Vienna, Austria.
 
 ## Dependencies
 
@@ -38,11 +37,11 @@ Before you can start searching in a corpus you have to build the corpus index, a
 
 The following builds the basic corpus index for the smallest version of the BNC corpus, in the directory `corpora/bnc-100k.corpus/`, which is a compact and efficient representation of the corpus:
 
-    python3 build_indexes.py --corpus corpora/bnc-100k.csv --corpus-index
+    python3 build_indexes.py --corpus bnc-100k.csv --corpus-index
 
 Now you can build inverted indexes for the corpus, for the features `word`, `lemma`, and `pos`. All inverted indexes are in the directory `corpora/bnc-100k.indexes/`:
 
-    python3 build_indexes.py --corpus corpora/bnc-100k.csv --features word lemma pos --max-dist 2
+    python3 build_indexes.py --corpus bnc-100k.csv --features word lemma pos --max-dist 2
 
 `--max-dist` tells how many different binary indexes that will be created:
 it's the maximum adjacent distance between the tokens in the query. The default setting is 2.
@@ -80,7 +79,7 @@ There are several possible sorting implementations you can test with (using the 
 When you have to have built the inverted indexes as described above, you can search them.
 To do this from the command line, you give the corpus and the query:
 
-    python3 search_cmdline.py --corpus corpora/bnc-100k --query '[pos="ART"] [lemma="small"] [pos="SUBST"]'
+    python3 search_cmdline.py --corpus bnc-100k --query '[pos="ART"] [lemma="small"] [pos="SUBST"]'
 
 All searches are cached (in the directory `cache/`), if you don't want to use the cached result, you can use `--no-cache`.
 Use `--print json` for JSON output, `--start 42` to print from match 42, and `--num 14` to print at most 14 matches.
@@ -100,13 +99,13 @@ Then you can compile the `fast_merge` module:
 
     make fast-merge
 
-
 ## Using the web demo locally
 
 You can open the file `docs/webdemo.html` in your favourite browser to try out a very basic search interface.
 This will use an API backend that is running on the domain `korpsearch.cse.chalmers.se`.
 
 To run the web demo on your local builds you can change the first line in the file `docs/korpsearch.js` to:
+
 ```
 const API_DOMAIN = "http://127.0.0.1:8000/";
 ```
