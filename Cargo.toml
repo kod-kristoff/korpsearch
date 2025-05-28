@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = ["crates/korpsearch"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+authors = [
+    "Språkbanken Text <sb-info@svenska.gu.se>",
+    "Kristoffer Andersson <kristoffer.andersson@gu.se>",
+]
+
+[workspace.dependencies]
